@@ -182,7 +182,11 @@ class Git:
     @classmethod
     def update_from_svn(cls, revision=""):
         run_command('git svn fetch {0}'.format(cls._format_revision_arg(revision)))
-        run_command('git svn rebase --local')
+        if revision:
+            commit_id = get_output('git svn find-rev --before r{0}'.format(revision))
+            run_command('git checkout {0}'.format(commit_id))
+        else:	
+            run_command('git svn rebase --local')
 
     @classmethod
     def clone_from_svn(cls, remote_url, local_url, revision):
@@ -549,12 +553,12 @@ def performAction(action, *args):
     Git.goto_root()
 
     # We are not in toplevel, perform for single instance
-    if Git.get_root_ext_relative():
-        external = GitSvnExternal.fromClonedDirectory(os.getcwd())
-        getattr(external, action)()
-        return
+    #if Git.get_root_ext_relative():
+    #    external = GitSvnExternal.fromClonedDirectory(os.getcwd())
+    #    getattr(external, action)()
+    #    return
 
-    externals = Git.get_cloned_externals()
+    externals = Git.get_externals()
     if not externals:
         fail("no cloned svn externals found")
 
