@@ -2,6 +2,7 @@
 
 import sys
 import os
+import posixpath
 import re
 import subprocess
 import argparse
@@ -312,7 +313,7 @@ class SvnExternal:
         matches = matched_pattern.groupdict()
         debug("matches: {0}", str(matches))
 
-        self.dir = os.path.join(external_dir, matches["dir"].strip())
+        self.dir = posixpath.join(external_dir, matches["dir"].strip())
         self.url = matches["url"].strip()
 
         if matches["rev1"]:
@@ -332,7 +333,7 @@ class SvnExternal:
 
         if url.startswith("^/"):
             # Relative to the repository root
-            url = os.path.join(svn_info.repository_root(), url[2:])
+            url = posixpath.join(svn_info.repository_root(), url[2:])
         elif url.startswith("//"):
             # Relative to the repository URL scheme
             scheme = re.search(scheme_pattern, svn_info.url()).group("scheme")
@@ -343,7 +344,7 @@ class SvnExternal:
             url = server + url
         elif url.startswith("../"):
             # Relative to the repository URL
-            url = os.path.join(svn_info.url(), url)
+            url = posixpath.join(svn_info.url(), url)
 
         debug("url after post process: {0}", url)
 
@@ -352,9 +353,9 @@ class SvnExternal:
         matches = re.search(full_url_pattern, url)
 
         server = matches.group("server")
-        path = os.path.normpath(matches.group("path"))
+        path = posixpath.normpath(matches.group("path"))
 
-        self.url = os.path.join(server, path)
+        self.url = posixpath.join(server, path)
         debug("url after normalization and optional scheme change: {0}", self.url)
 
 
@@ -381,13 +382,13 @@ class GitSvnExternal:
     @classmethod
     def fromSvnExternal(cls, svn_external):
         local_dir = svn_external.dir
-        local_url = os.path.join(cls.ExternalsDir, local_dir)
+        local_url = posixpath.join(cls.ExternalsDir, local_dir)
         return cls(local_url, local_dir, svn_external.url, svn_external.rev)
 
     @classmethod
     def fromClonedDirectory(cls, path):
         local_url = path
-        local_dir = re.sub(".*{0}/".format(cls.ExternalsDir ), "", path)
+        local_dir = re.sub(".*{0}\\\\".format(cls.ExternalsDir ), "", path)
         return cls(local_url, local_dir, "", "")
 
     def name(self):
@@ -414,14 +415,14 @@ class GitSvnExternal:
 
     def _create_link(self):
         """create the link to the external"""
-        if os.path.lexists(self.local_dir):
-            debug("removing symlink: {0}", self.local_dir)
-            os.remove(self.local_dir)
+        if os.path.lexists(os.path.normpath(self.local_dir)):
+            debug("removing symlink: {0}", os.path.normpath(self.local_dir))
+            os.remove(os.path.normpath(self.local_dir))
 
         # construct relative link
         current_dir = os.getcwd()
 
-        dirname = os.path.dirname(self.local_dir)
+        dirname = os.path.dirname(os.path.normpath(self.local_dir))
         if dirname:
             create_dir_if_not_exist(dirname)
             os.chdir(dirname)
@@ -430,7 +431,7 @@ class GitSvnExternal:
         os.chdir(current_dir)
 
         source = rel + self.local_url
-        debug("creating symlink {0} => {1}", source, self.local_dir)
+        debug("creating symlink {0} => {1}", os.path.normpath(source), os.path.normpath(self.local_dir))
         os.symlink(source, self.local_dir)
 
     def _update_excludes(self):
@@ -523,10 +524,10 @@ def clone(args):
         external.clone()
 
     # search for cloned externals which are not an svn external any more
-    local_urls = [external.local_url for external in externals]
+    local_urls = [os.path.normpath(external.local_url) for external in externals]
     cloned_externals = Git.get_cloned_externals()
     for cloned_external in cloned_externals:
-        if not cloned_external.local_url in local_urls:
+        if not os.path.normpath(cloned_external.local_url) in local_urls:
             cloned_external.askRemove()
 
 def performAction(action, *args):
