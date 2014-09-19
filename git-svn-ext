@@ -19,8 +19,6 @@ def get_output(command, include_stderr=True):
 
     proc = subprocess.Popen(command, shell=True, stderr=stderr, stdout=subprocess.PIPE)
 
-    proc.wait()
-
     output = proc.communicate()[0].rstrip('\n')
     return output
 
