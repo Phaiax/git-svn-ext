@@ -388,8 +388,8 @@ class SvnExternal:
 class GitSvnExternal:
     """Class to hold and manipulate data about an svn external
 
-    external_dir: directory in the source that contains the svn:external property
-    local_dir   : the location relative to external_dir where the external source will be
+    local_url: directory in the source that contains the svn:external property
+    local_dir   : the location relative to local_url where the external source will be
     remote_url  : svn external
     revision    : optional pinned revision
     """
