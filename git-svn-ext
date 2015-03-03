@@ -9,21 +9,26 @@ import argparse
 import shutil
 
 DEBUG = False
-
 __CSL = None
-def symlink(source, link_name):
-    '''symlink(source, link_name)
-       Creates a symbolic link pointing to source named link_name'''
-    global __CSL
-    if __CSL is None:
-        import ctypes
-        csl = ctypes.windll.kernel32.CreateSymbolicLinkW
-        csl.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
-        csl.restype = ctypes.c_ubyte
-        __CSL = csl
-    flags = 1
-    if __CSL(link_name, source, flags) == 0:
-        raise ctypes.WinError()
+
+# monkey patch os to include symlink for windows
+if not hasattr(os, "symlink"):
+    def symlink_nt(source, link_name):
+        '''symlink(source, link_name)
+           Creates a symbolic link pointing to source named link_name'''
+        global __CSL
+        if __CSL is None:
+            import ctypes
+            csl = ctypes.windll.kernel32.CreateSymbolicLinkW
+            csl.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
+            csl.restype = ctypes.c_ubyte
+            __CSL = csl
+        flags = 1
+        if __CSL(link_name, source, flags) == 0:
+            raise ctypes.WinError()
+
+    if os.name == 'nt':
+        os.symlink = symlink_nt
 
 def get_output(command, include_stderr=True):
     """Get the output of a command, optionally ignoring stderr"""
@@ -451,7 +456,7 @@ class GitSvnExternal:
 
         source = rel + self.local_url
         debug("creating symlink {0} => {1}", os.path.normpath(source), os.path.normpath(self.local_dir))
-        symlink(os.path.normpath(source), os.path.normpath(self.local_dir))
+        os.symlink(os.path.normpath(source), os.path.normpath(self.local_dir))
 
     def _update_excludes(self):
         """add symlink to the git excludes path"""
