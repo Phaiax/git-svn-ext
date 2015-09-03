@@ -221,22 +221,27 @@ class Git:
 
         results = {}
 
+        checkout_dir = ""
         external_dir = ""
         output = get_output_lines('git svn show-externals', include_stderr=False)
 
         for line in output:
-            match = re.search(r"# (.*)", line)
+            match = re.search(r"^# (.*)", line)
             if match:
-                # the external dir is a relative dir, but starts with a slash
-                # remove the leading /
-                external_dir = re.sub("^/", "", match.group(1))
-            elif line:
+                # the checkout dir is a relative dir, but starts with a slash
+                checkout_dir = match.group(1)
+                external_dir = checkout_dir[1:]
+                break
+
+        for line in output:
+            match = re.search(r"^# (.*)", line)
+            if not match and line:
                 # start array
                 if not results.has_key(external_dir):
                     results[external_dir] = []
 
-                # NOTE: git-svn prepends the external with external_dir -> undo that
-                line = re.sub("^/" + external_dir, "", line)
+                # NOTE: git-svn prepends the external with checkout_dir -> undo that
+                line = re.sub("^" + checkout_dir, "", line)
                 results[external_dir].append(line.strip())
 
         debug("externals: {0}", str(results))
@@ -247,15 +252,15 @@ class Git:
         return GitSvnInfo(get_output_lines('git svn info'))
 
     @classmethod
-    def get_externals(cls):
+    def get_externals(cls, pre14=False):
         result = []
         git_svn_info = cls.svn_info()
 
         for src_dir, externals in cls._get_svn_externals().items():
             for external in externals:
-                debug("source dir: {0}, external: {0}", src_dir, external)
+                debug("source dir: {0}, external: {1}", src_dir, external)
 
-                svn_ext = SvnExternal(src_dir, external, git_svn_info)
+                svn_ext = SvnExternal(src_dir, external, git_svn_info, pre14)
                 git_svn_ext = GitSvnExternal.fromSvnExternal(svn_ext)
 
                 # Allow exclusion of externals
@@ -319,16 +324,18 @@ class SvnExternal:
 
     svn_info is passed in for ease of testing
     """
-    def __init__(self, external_dir, external_string, svn_info):
+    def __init__(self, external_dir, external_string, svn_info, pre14=False):
         self.dir = ""
         self.url = ""
         self.rev = ""
 
         prefix_revision = r"(-r\s*(?P<rev1>\d+))?"
-        url = r"(?P<url>.+?)"
+        url = r"(?P<url>.+)"
         suffix_revision = r"(@(?P<rev2>\d+))?"
         path = r"(?P<dir>.+)"
-        external_pattern = re.compile(r"{0}\s*{1}{2}\s+{3}".format(prefix_revision, url, suffix_revision, path))
+        external_pattern_aft14 = re.compile(r"{0}\s*{1}{2}\s+{3}".format(prefix_revision, url, suffix_revision, path))
+        external_pattern_pre14 = re.compile(r"^{0}\s+{1}\s*{2}$".format(path, prefix_revision, url))
+        external_pattern = external_pattern_aft14 if not pre14 else external_pattern_pre14
 
         matched_pattern = external_pattern.search(external_string)
         if not matched_pattern:
@@ -340,9 +347,9 @@ class SvnExternal:
         self.dir = posixpath.join(external_dir, matches["dir"].strip())
         self.url = matches["url"].strip()
 
-        if matches["rev1"]:
+        if matches.get('rev1', None):
             self.rev = matches["rev1"].strip()
-        elif matches["rev2"]:
+        elif matches.get('rev2', None):
             self.rev = matches["rev2"].strip()
 
         self._post_process(svn_info)
@@ -352,7 +359,7 @@ class SvnExternal:
 
         url = self.url
         scheme_pattern = r"(?P<scheme>(http|https|svn|svn\+ssh|file)://)"
-        server_pattern = r"(?P<server>{0}.+?)/".format(scheme_pattern)
+        server_pattern = r"(?P<server>{0}[^/]+)?/?".format(scheme_pattern)
         full_url_pattern = r"{0}(?P<path>.+)".format(server_pattern)
 
         if url.startswith("^/"):
@@ -377,6 +384,8 @@ class SvnExternal:
         matches = re.search(full_url_pattern, url)
 
         server = matches.group("server")
+        if not server:
+            server = svn_info.repository_root()
         path = posixpath.normpath(matches.group("path"))
 
         self.url = posixpath.join(server, path)
@@ -539,7 +548,7 @@ class GitSvnExternal:
 
 def clone(args):
     Git.goto_root()
-    externals = Git.get_externals()
+    externals = Git.get_externals(pre14=args.pre14)
 
     if not externals:
         fail("no svn externals found")
@@ -554,7 +563,7 @@ def clone(args):
         if not os.path.normpath(cloned_external.local_url) in local_urls:
             cloned_external.askRemove()
 
-def performAction(action, *args):
+def performAction(action, *args, **kw):
     Git.goto_root()
 
     # We are not in toplevel, perform for single instance
@@ -563,7 +572,7 @@ def performAction(action, *args):
     #    getattr(external, action)()
     #    return
 
-    externals = Git.get_externals()
+    externals = Git.get_externals(pre14=kw.get("pre14", False))
     if not externals:
         fail("no cloned svn externals found")
 
@@ -571,13 +580,13 @@ def performAction(action, *args):
         getattr(external, action)(*args)
 
 def update(args):
-    performAction('update')
+    performAction('update', **vars(args))
 
 def check(args):
-    performAction('check')
+    performAction('check', **vars(args))
 
 def execute(args):
-    performAction('execute', args.command)
+    performAction('execute', args.command, **vars(args))
 
 def main():
     if sys.platform == 'win32':
@@ -588,6 +597,8 @@ def main():
         epilog="Note: externals may be ignored if listed in {0}".format(GitSvnExternal.ExcludesFile)
     )
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
+    parser.add_argument('-p', '--pre14', action='store_true', default=False)
+    parser.add_argument('-d', '--dbg', action='store_true', default=False)
     subparsers = parser.add_subparsers(help='available commands')
 
     parser_clone = subparsers.add_parser('clone')
@@ -604,6 +615,8 @@ def main():
     parser_for_all.add_argument('command', help='a command to execute for each external')
 
     args = parser.parse_args()
+    global DEBUG
+    DEBUG=args.dbg
     args.func(args)
 
 if __name__ == '__main__':
