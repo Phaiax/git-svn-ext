@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/d/bin/python2/python-2.7.12.amd64/python.exe
 
 import sys
 import os
@@ -16,6 +16,16 @@ if not hasattr(os, "symlink"):
     def symlink_nt(source, link_name):
         '''symlink(source, link_name)
            Creates a symbolic link pointing to source named link_name'''
+        # source ist bei junctions nicht mehr relativ zum linkdir, sondern zu aktuellem verzeichnis
+        # goto_root() wurde aufgerufen, d.h. wir sind auf jeden fall im git root
+        #   Verbindung erstellt fuer linkname:tools\svnShellScripts <<===>> src:..\.git_externals\tools\svnShellScripts
+
+        (link_dir, link) = os.path.split(link_name)
+        source_from_gitroot = os.path.join(link_dir, source)
+        
+        run_command('mklink /D /J {0} {1}'.format(link_name, source_from_gitroot))
+        return
+        
         global __CSL
         if __CSL is None:
             import ctypes
@@ -224,28 +234,32 @@ class Git:
         checkout_dir = ""
         external_dir = ""
         output = get_output_lines('git svn show-externals', include_stderr=False)
-
+        # /MavSimulation/src/mav/src/-r 227 /MAV_MC_nc_stm32/trunk/source microcontroller
+        # Pathinmasterrepository     rev    pathtoexternalrep             shouldbelinkedtothisfolderinthe<Pathinmasterrepository>
         for line in output:
+
             match = re.search(r"^# (.*)", line)
             if match:
                 # the checkout dir is a relative dir, but starts with a slash
                 checkout_dir = match.group(1)
                 external_dir = checkout_dir[1:]
-                break
+                continue
 
-        for line in output:
-            match = re.search(r"^# (.*)", line)
             if not match and line:
                 # start array
                 if not results.has_key(external_dir):
                     results[external_dir] = []
 
                 # NOTE: git-svn prepends the external with checkout_dir -> undo that
-                line = re.sub("^" + checkout_dir, "", line)
-                results[external_dir].append(line.strip())
+                line = re.sub("^" + checkout_dir, "", line).strip()
+                if line:
+                    results[external_dir].append(line)
+
+
 
         debug("externals: {0}", str(results))
         return results
+
 
     @staticmethod
     def svn_info():
